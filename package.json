@@ -5,22 +5,23 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    
     "start-cadastro": "node cadastro-service.js",
     "start-ingressos": "node ingresso-control/ingresso-control.js",
     "start-atracoes": "node cadastro-atracoes/cadastro-atracoes.js",
     "start-filas": "node controle-filas/controle-filas.js",
     "start-gateway": "node api-gateway/api-gateway.js",
-
-    "start-all": "concurrently \"npm:start-cadastro\" \"npm:start-ingressos\" \"npm:start-atracoes\" \"npm:start-filas\" \"npm:start-gateway\""
+    "start-estimativas": "node tempo-espera/tempo-espera.js",
+    "start-all": "concurrently \"npm:start-cadastro\" \"npm:start-ingressos\" \"npm:start-atracoes\" \"npm:start-filas\" \"npm:start-gateway\" \"npm:start-estimativas\""
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "axios": "^1.13.1",
     "body-parser": "^2.2.0",
     "concurrently": "^9.2.1",
+    "cors": "^2.8.5",
     "express": "^5.1.0",
     "sqlite3": "^5.1.7"
   }

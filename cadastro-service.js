@@ -71,7 +71,7 @@ app.get("/Cadastro", (req, res, next) => {
 app.get("/Cadastro/:cpf", (req, res, next) => {
     db.get(
         `SELECT * FROM cadastro WHERE cpf = ?`,
-        req.params.cpf,
+        parseInt(req.params.cpf, 10),
         (err, result) => {
             if (err) {
                 console.log("Erro: " + err);
@@ -90,7 +90,7 @@ app.get("/Cadastro/:cpf", (req, res, next) => {
 app.patch("/Cadastro/:cpf", (req, res, next) => {
     db.run(
         `UPDATE cadastro SET nome = COALESCE(?,nome), email = COALESCE(?,email) WHERE cpf = ?`,
-        [req.body.nome, req.body.email, req.params.cpf],
+        [req.body.nome, req.body.email, parseInt(req.params.cpf, 10)],
         function (err) {
             if (err) {
                 res.status(500).send("Erro ao alterar dados.");
@@ -108,7 +108,7 @@ app.patch("/Cadastro/:cpf", (req, res, next) => {
 app.delete("/Cadastro/:cpf", (req, res, next) => {
     db.run(
         `DELETE FROM cadastro WHERE cpf = ?`,
-        req.params.cpf,
+        parseInt(req.params.cpf, 10),
         function (err) {
             if (err) {
                 res.status(500).send("Erro ao remover cliente.");

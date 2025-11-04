@@ -276,7 +276,7 @@ app.get("/Ingressos", (req, res, next) => {
 app.get("/Ingressos/usuario/:cpf", (req, res, next) => {
     db.all(
         `SELECT * FROM ingressos WHERE cpf_usuario = ?`,
-        req.params.cpf,
+        parseInt(req.params.cpf, 10),
         (err, result) => {
             if (err) {
                 res.status(500).send("Erro ao obter dados.");
