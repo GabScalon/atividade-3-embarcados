@@ -7,6 +7,8 @@ app.use(logger("dev"));
 
 const CADASTRO_URL = "http://localhost:8080";
 const INGRESSOS_URL = "http://localhost:8081";
+const ATRACOES_URL = "http://localhost:8082";
+const FILAS_URL = "http://localhost:8083";
 
 function selectProxyHost(req) {
   if (req.path.startsWith("/Cadastro")) {
@@ -16,6 +18,10 @@ function selectProxyHost(req) {
     req.path.startsWith("/Validar")
   ) {
     return INGRESSOS_URL;
+  } else if (req.path.startsWith("/Atracoes")) {
+    return ATRACOES_URL;
+  } else if (req.path.startsWith("/Filas")) {
+    return FILAS_URL;
   } else {
     return null; // Rota não mapeada
   }

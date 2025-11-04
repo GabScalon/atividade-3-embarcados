@@ -4,7 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    
+    "start-cadastro": "node cadastro-service.js",
+    "start-ingressos": "node ingresso-control/ingresso-control.js",
+    "start-atracoes": "node cadastro-atracoes/cadastro-atracoes.js",
+    "start-filas": "node controle-filas/controle-filas.js",
+    "start-gateway": "node api-gateway/api-gateway.js",
+
+    "start-all": "concurrently \"npm:start-cadastro\" \"npm:start-ingressos\" \"npm:start-atracoes\" \"npm:start-filas\" \"npm:start-gateway\""
   },
   "keywords": [],
   "author": "",
@@ -12,6 +20,7 @@
   "type": "commonjs",
   "dependencies": {
     "body-parser": "^2.2.0",
+    "concurrently": "^9.2.1",
     "express": "^5.1.0",
     "sqlite3": "^5.1.7"
   }
