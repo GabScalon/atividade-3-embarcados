@@ -1,20 +1,15 @@
 // Inicia o Express.js
 const express = require("express");
 const app = express();
-
-// Body Parser - usado para processar dados da requisição HTTP
 const bodyParser = require("body-parser");
+const sqlite3 = require("sqlite3");
+const axios = require("axios");
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Importa o package do SQLite
-const sqlite3 = require("sqlite3");
-
-const axios = require("axios");
-
 const API_GATEWAY_URL = "http://localhost:8000";
 
-// Acessa o arquivo com o banco de dados
 var db = new sqlite3.Database("./Ingressos.db", (err) => {
     if (err) {
         console.log(
@@ -44,10 +39,7 @@ db.run(
     }
 );
 
-/**
- * Método HTTP POST /Ingressos - "Vende" (cria) um novo ingresso
- * Body: { "cpf": 12345678900, "tipo": "limitado", "valorInicial": 5 }
- */
+// Método HTTP POST /Ingressos - "Vende" (cria) um novo ingresso
 app.post("/Ingressos", (req, res, next) => {
     const { cpf, tipo, valorInicial } = req.body;
 
@@ -55,17 +47,18 @@ app.post("/Ingressos", (req, res, next) => {
         return res.status(400).send("CPF e tipo são obrigatórios.");
     }
 
-    // Antes de criar o ingresso, verifica se o usuário existe
-    // no microserviço de Cadastro (através do Gateway).
+    const cpfNumerico = parseInt(cpf, 10);
+    if (isNaN(cpfNumerico)) {
+        return res.status(400).send("CPF deve ser um número.");
+    }
+
     axios
-        .get(`${API_GATEWAY_URL}/Cadastro/${cpf}`)
+        .get(`${API_GATEWAY_URL}/Cadastro/${cpfNumerico}`)
         .then((response) => {
-            // Se o Gateway retornou 200, o usuário existe.
             console.log(
-                `Usuário ${cpf} verificado via Gateway. Criando ingresso...`
+                `Usuário ${cpfNumerico} verificado via Gateway. Criando ingresso...`
             );
 
-            // Lógica para definir os dados do ingresso
             const now = new Date();
             const id = `TICKET-${Date.now()}`;
             const criadoEm = now.toISOString();
@@ -100,7 +93,7 @@ app.post("/Ingressos", (req, res, next) => {
                     break;
                 case "anual":
                     const future = new Date(now);
-                    future.setDate(future.getDate() + 365); // Válido por 365 dias
+                    future.setDate(future.getDate() + 365);
                     validoAte = future.toISOString();
                     break;
                 default:
@@ -111,17 +104,17 @@ app.post("/Ingressos", (req, res, next) => {
                         );
             }
 
-            // 3. Inserir o ingresso no banco de dados 'Ingressos.db'
             const params = [
                 id,
-                cpf,
+                cpfNumerico,
                 tipo,
                 criadoEm,
                 validoAte,
                 acessosRestantes,
             ];
             db.run(
-                "INSERT INTO ingressos (id, cpf_usuario, tipo, criado_em, valido_ate, acessos_restantes) VALUES (?, ?, ?, ?, ?, ?)",
+                `INSERT INTO ingressos (id, cpf_usuario, tipo, criado_em, valido_ate, acessos_restantes)
+                VALUES (?, ?, ?, ?, ?, ?)`,
                 params,
                 function (err) {
                     if (err) {
@@ -130,7 +123,6 @@ app.post("/Ingressos", (req, res, next) => {
                             .status(500)
                             .send("Erro ao criar o ingresso.");
                     }
-                    // Retorna o ingresso recém-criado
                     db.get(
                         "SELECT * FROM ingressos WHERE id = ?",
                         [id],
@@ -149,7 +141,6 @@ app.post("/Ingressos", (req, res, next) => {
             );
         })
         .catch((error) => {
-            // Se o Axios der erro (ex: Gateway não achou o usuário)
             if (error.response && error.response.status === 404) {
                 return res
                     .status(404)
@@ -157,7 +148,6 @@ app.post("/Ingressos", (req, res, next) => {
                         "Usuário (CPF) não encontrado (verificado via Gateway)."
                     );
             } else {
-                // Outro erro (ex: Gateway fora do ar)
                 console.log("Erro ao contatar Gateway:", error.message);
                 return res
                     .status(500)
@@ -166,135 +156,165 @@ app.post("/Ingressos", (req, res, next) => {
         });
 });
 
-/**
- * Método HTTP POST /Validar/:id - Valida um ingresso na catraca
- * Esta rota será chamada pela catraca (via Gateway)
- */
+// Método HTTP POST /Validar/:id - Valida um ingresso NA CATRACA
 app.post("/Validar/:id", (req, res, next) => {
     const { id } = req.params;
     const now_iso = new Date().toISOString();
 
-    // 1. Busca o ingresso no banco local 'Ingressos.db'
-    db.get("SELECT * FROM ingressos WHERE id = ?", [id], (err, ticket) => {
-        if (err) {
-            return res.status(500).send("Erro ao consultar ingresso.");
-        }
-        if (!ticket) {
-            // Ingresso não existe
-            return res
-                .status(404)
-                .json({ allowed: false, message: "Ingresso não encontrado." });
-        }
+    db.get(
+        `SELECT *
+        FROM ingressos
+        WHERE id = ?`,
+        [id],
+        (err, ticket) => {
+            if (err) {
+                return res.status(500).send("Erro ao consultar ingresso.");
+            }
+            if (!ticket) {
+                return res
+                    .status(404)
+                    .json({
+                        allowed: false,
+                        message: "Ingresso não encontrado.",
+                    });
+            }
 
-        // 2. Lógica de validação por tipo
-        let validationResponse = {
-            allowed: false,
-            message: "",
-            cpf: ticket.cpf_usuario, // Informa o CPF para o serviço de filas
-        };
+            let validationResponse = {
+                allowed: false,
+                message: "",
+                cpf: ticket.cpf_usuario,
+            };
 
-        switch (ticket.tipo) {
-            case "limitado":
-                if (ticket.acessos_restantes > 0) {
-                    const novosAcessos = ticket.acessos_restantes - 1;
-                    // Atualiza o banco ANTES de liberar
-                    db.run(
-                        "UPDATE ingressos SET acessos_restantes = ? WHERE id = ?",
-                        [novosAcessos, id],
-                        (updateErr) => {
-                            if (updateErr) {
-                                return res
-                                    .status(500)
-                                    .send(
-                                        "Erro ao atualizar acessos do ingresso."
-                                    );
+            const finalizarValidacaoEEntrarNaFila = () => {
+                // Se o ingresso não for válido (expirado, sem acessos), rejeita a entrada
+                if (!validationResponse.allowed) {
+                    return res.status(403).json(validationResponse);
+                }
+
+                // Se o ingresso for válido, checa se a catraca enviou um atracao_id
+                const { atracao_id } = req.body;
+
+                if (!atracao_id) {
+                    validationResponse.message_fila =
+                        "Nenhuma fila informada. Apenas validado.";
+                    return res.status(200).json(validationResponse);
+                }
+
+                axios
+                    .post(`${API_GATEWAY_URL}/Filas/entrar`, {
+                        atracao_id: parseInt(atracao_id, 10),
+                        cpf_usuario: ticket.cpf_usuario,
+                    })
+                    .then((filaResponse) => {
+                        validationResponse.message_fila =
+                            "Usuário adicionado à fila.";
+                        res.status(200).json(validationResponse);
+                    })
+                    .catch((filaError) => {
+                        validationResponse.allowed = false; // A entrada é barrada
+                        validationResponse.message = filaError.response
+                            ? filaError.response.data
+                            : "Erro ao entrar na fila.";
+                        const status = filaError.response
+                            ? filaError.response.status
+                            : 500;
+                        res.status(status).json(validationResponse);
+                    });
+            };
+
+            // Lógica de validação
+            switch (ticket.tipo) {
+                case "limitado":
+                    if (ticket.acessos_restantes > 0) {
+                        const novosAcessos = ticket.acessos_restantes - 1;
+                        db.run(
+                            "UPDATE ingressos SET acessos_restantes = ? WHERE id = ?",
+                            [novosAcessos, id],
+                            (updateErr) => {
+                                if (updateErr) {
+                                    return res
+                                        .status(500)
+                                        .send("Erro ao atualizar acessos.");
+                                }
+                                validationResponse.allowed = true;
+                                validationResponse.message = `Acesso permitido. Restam ${novosAcessos} acessos.`;
+
+                                finalizarValidacaoEEntrarNaFila();
                             }
+                        );
+                        return;
+                    } else {
+                        validationResponse.message =
+                            "Ingresso sem acessos restantes.";
+                    }
+                    break;
 
-                            validationResponse.allowed = true;
-                            validationResponse.message = `Acesso permitido. Restam ${novosAcessos} acessos.`;
+                case "diario":
+                    if (now_iso <= ticket.valido_ate) {
+                        validationResponse.allowed = true;
+                        validationResponse.message =
+                            "Acesso ilimitado (diário) permitido.";
+                    } else {
+                        validationResponse.message =
+                            "Ingresso diário expirado.";
+                    }
+                    break;
 
-                            // DICA: Aqui você usaria o Axios para chamar o serviço de FILAS
-                            // axios.post(`${API_GATEWAY_URL}/filas/entrar`, { cpf: ticket.cpf_usuario, ... })
+                case "anual":
+                    if (now_iso <= ticket.valido_ate) {
+                        validationResponse.allowed = true;
+                        validationResponse.message =
+                            "Acesso (passaporte anual) permitido.";
+                    } else {
+                        validationResponse.message =
+                            "Passaporte anual expirado.";
+                    }
+                    break;
+            }
 
-                            res.status(200).json(validationResponse);
-                        }
-                    );
-                    // Retorno é assíncrono, então saímos da função
-                    return;
-                } else {
-                    validationResponse.message =
-                        "Ingresso sem acessos restantes.";
-                    res.status(403).json(validationResponse); // 403 = Forbidden
-                }
-                break;
-
-            case "diario":
-                if (now_iso <= ticket.valido_ate) {
-                    validationResponse.allowed = true;
-                    validationResponse.message =
-                        "Acesso ilimitado (diário) permitido.";
-                    // DICA: Chamar serviço de FILAS aqui
-                    res.status(200).json(validationResponse);
-                } else {
-                    validationResponse.message = "Ingresso diário expirado.";
-                    res.status(403).json(validationResponse);
-                }
-                break;
-
-            case "anual":
-                if (now_iso <= ticket.valido_ate) {
-                    validationResponse.allowed = true;
-                    validationResponse.message =
-                        "Acesso (passaporte anual) permitido.";
-                    // DICA: Chamar serviço de FILAS aqui
-                    res.status(200).json(validationResponse);
-                } else {
-                    validationResponse.message = "Passaporte anual expirado.";
-                    res.status(403).json(validationResponse);
-                }
-                break;
+            finalizarValidacaoEEntrarNaFila();
         }
-    });
+    );
 });
 
-/**
- * Método HTTP GET /Ingressos - retorna todos os ingressos (para admin)
- */
+// Método HTTP GET /Ingressos - retorna todos os ingressos (para admin)
 app.get("/Ingressos", (req, res, next) => {
-    db.all(`SELECT * FROM ingressos`, [], (err, result) => {
-        if (err) {
-            res.status(500).send("Erro ao obter dados.");
-        } else {
-            res.status(200).json(result);
-        }
-    });
-});
-
-/**
- * Método HTTP GET /Ingressos/usuario/:cpf - retorna todos os ingressos de um usuário
- */
-app.get("/Ingressos/usuario/:cpf", (req, res, next) => {
     db.all(
-        `SELECT * FROM ingressos WHERE cpf_usuario = ?`,
-        parseInt(req.params.cpf, 10),
+        `SELECT *
+        FROM ingressos`,
+        [],
         (err, result) => {
             if (err) {
                 res.status(500).send("Erro ao obter dados.");
             } else {
-                // Retorna a lista (pode ser vazia se não houver ingressos)
                 res.status(200).json(result);
             }
         }
     );
 });
 
-/**
- * Método HTTP GET /Ingressos/:id - retorna um ingresso específico
- */
+// Método HTTP GET /Ingressos/usuario/:cpf - retorna todos os ingressos de um usuário
+app.get("/Ingressos/usuario/:cpf", (req, res, next) => {
+    db.all(
+        `SELECT * FROM ingressos WHERE cpf_usuario = ?`,
+        [parseInt(req.params.cpf, 10)],
+        (err, result) => {
+            if (err) {
+                res.status(500).send("Erro ao obter dados.");
+            } else {
+                res.status(200).json(result);
+            }
+        }
+    );
+});
+
+// Método HTTP GET /Ingressos/:id - retorna um ingresso específico
 app.get("/Ingressos/:id", (req, res, next) => {
     db.get(
-        `SELECT * FROM ingressos WHERE id = ?`,
-        req.params.id,
+        `SELECT *
+        FROM ingressos
+        WHERE id = ?`,
+        [req.params.id],
         (err, result) => {
             if (err) {
                 res.status(500).send("Erro ao obter dados.");
@@ -308,7 +328,6 @@ app.get("/Ingressos/:id", (req, res, next) => {
 });
 
 // Inicia o Servidor na porta 8081
-// Esta porta DEVE ser diferente do serviço de Cadastro
 let porta = 8081;
 app.listen(porta, () => {
     console.log(`Microserviço de INGRESSOS em execução na porta: ${porta}`);

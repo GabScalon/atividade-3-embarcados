@@ -1,7 +1,7 @@
 // Inicia o Express.js
 const express = require("express");
 const app = express();
-const cors = require("cors"); // Necessário para o frontend
+const cors = require("cors"); // Necessário somente para o frontend
 
 // Body Parser - usado para processar dados da requisição HTTP
 const bodyParser = require("body-parser");
@@ -44,32 +44,45 @@ db.run(
     }
 );
 
-/**
- * Método HTTP POST /Filas/entrar - coloca uma pessoa na fila de uma atração
- * Body: { "atracao_id": 1, "cpf_usuario": "12345678900" }
- */
+// Método HTTP POST /Filas/entrar - coloca uma pessoa na fila de uma atração
 app.post("/Filas/entrar", (req, res, next) => {
-    const { atracao_id, cpf_usuario } = req.body;
+    const atracao_id = parseInt(req.body.atracao_id, 10);
+    const cpf_usuario = parseInt(req.body.cpf_usuario, 10);
 
-    if (!atracao_id || !cpf_usuario) {
-        return res.status(400).send("CPF e atracao_id são obrigatórios.");
+    if (
+        !atracao_id ||
+        !cpf_usuario ||
+        isNaN(atracao_id) ||
+        isNaN(cpf_usuario)
+    ) {
+        return res
+            .status(400)
+            .send("CPF e atracao_id são obrigatórios e devem ser números.");
     }
 
-    // Etapa 1: Verificar se o usuário existe
+    // Verifica se o usuário existe
     axios
         .get(`${API_GATEWAY_URL}/Cadastro/${cpf_usuario}`)
         .then((userResponse) => {
             console.log(
                 `Usuário ${cpf_usuario} verificado. Verificando atração...`
             );
-            // Etapa 2: Retorna a próxima chamada (verificar atração)
-            // (Note a rota correta /Atracoes/:id)
+            // Retorna a próxima chamada (verificar atração)
             return axios.get(`${API_GATEWAY_URL}/Atracoes/${atracao_id}`);
         })
         .then((atracaoResponse) => {
-            // Usuário E Atração OK.
+            const atracao = atracaoResponse.data;
+            if (atracao.status !== "Em funcionamento") {
+                // Se a atração não estiver funcionando, rejeita a entrada na fila.
+                return res
+                    .status(403)
+                    .send(
+                        `A atração ${atracao.nome} não está em funcionamento. Status: ${atracao.status}`
+                    );
+            }
+
             console.log(
-                `Atração ${atracao_id} verificada. Colocando na fila...`
+                `Atração ${atracao_id} (${atracao.nome}) está em funcionamento. Colocando na fila...`
             );
 
             const agora = new Date();
@@ -77,14 +90,12 @@ app.post("/Filas/entrar", (req, res, next) => {
 
             const params = [atracao_id, cpf_usuario, entrouEm];
 
-            // CORREÇÃO: Inserir na tabela 'Filas'
             db.run(
-                "INSERT INTO Filas (atracao_id, cpf_usuario, entrou_em) VALUES (?, ?, ?)",
+                `INSERT INTO Filas (atracao_id, cpf_usuario, entrou_em)
+                VALUES (?, ?, ?)`,
                 params,
-                // 'function' é necessário para ter acesso ao 'this'
                 function (err) {
                     if (err) {
-                        // Trata o erro de 'UNIQUE constraint' (usuário já na fila)
                         if (err.message.includes("UNIQUE constraint failed")) {
                             return res
                                 .status(409)
@@ -94,12 +105,11 @@ app.post("/Filas/entrar", (req, res, next) => {
                         return res.status(500).send("Erro ao entrar na fila.");
                     }
 
-                    // CORREÇÃO: Usar 'this.lastID' para pegar o ID recém-criado
                     const novoId = this.lastID;
 
-                    // CORREÇÃO: Buscar na tabela 'Filas'
                     db.get(
-                        "SELECT * FROM Filas WHERE id = ?",
+                        `SELECT * FROM Filas
+                        WHERE id = ?`,
                         [novoId],
                         (err, row) => {
                             if (err) {
@@ -117,7 +127,6 @@ app.post("/Filas/entrar", (req, res, next) => {
         })
         .catch((error) => {
             if (error.response && error.response.status === 404) {
-                // Verifica qual das chamadas falhou
                 if (error.config.url.includes("/Cadastro")) {
                     return res
                         .status(404)
@@ -140,26 +149,12 @@ app.post("/Filas/entrar", (req, res, next) => {
         });
 });
 
-/**
- * Método HTTP GET /Filas - retorna todas as filas (para admin)
- */
+// Método HTTP GET /Filas - retorna todas as filas (para admin)
 app.get("/Filas", (req, res, next) => {
-    db.all(`SELECT * FROM Filas`, [], (err, result) => {
-        if (err) {
-            res.status(500).send("Erro ao obter dados.");
-        } else {
-            res.status(200).json(result);
-        }
-    });
-});
-
-/**
- * Método HTTP GET /Filas/usuario/:cpf_usuario - retorna todas as entradas em fila de um usuário
- */
-app.get("/Filas/usuario/:cpf_usuario", (req, res, next) => {
     db.all(
-        `SELECT * FROM Filas WHERE cpf_usuario = ?`,
-        [req.params.cpf_usuario],
+        `SELECT *
+        FROM Filas`,
+        [],
         (err, result) => {
             if (err) {
                 res.status(500).send("Erro ao obter dados.");
@@ -170,11 +165,28 @@ app.get("/Filas/usuario/:cpf_usuario", (req, res, next) => {
     );
 });
 
-/**
- * Método HTTP GET /Filas/Atracoes/:Atracoes_id - retorna a fila de uma atração
- */
+// Método HTTP GET /Filas/usuario/:cpf_usuario - retorna todas as entradas em fila de um usuário
+app.get("/Filas/usuario/:cpf_usuario", (req, res, next) => {
+    db.all(
+        `SELECT * FROM Filas
+        WHERE cpf_usuario = ?`,
+        [parseInt(req.params.cpf_usuario, 10)],
+        (err, result) => {
+            if (err) {
+                res.status(500).send("Erro ao obter dados.");
+            } else {
+                res.status(200).json(result);
+            }
+        }
+    );
+});
+
+// Método HTTP GET /Filas/atracao/:id_atracao - retorna a fila de uma atração
 app.get("/Filas/atracao/:id_atracao", (req, res, next) => {
-    const id_atracao = req.params.id_atracao;
+    const id_atracao = parseInt(req.params.id_atracao, 10);
+    if (isNaN(id_atracao)) {
+        return res.status(400).send("ID da atração deve ser um número.");
+    }
 
     // Verifica se a atração existe antes de consultar a fila
     axios
@@ -182,7 +194,10 @@ app.get("/Filas/atracao/:id_atracao", (req, res, next) => {
         .then((atracaoResponse) => {
             // Se chegou aqui, a atração EXISTE (axios retornou 200)
             db.all(
-                `SELECT * FROM Filas WHERE atracao_id = ? ORDER BY entrou_em ASC`,
+                `SELECT *
+                FROM Filas
+                WHERE atracao_id = ?
+                ORDER BY entrou_em ASC`,
                 [id_atracao],
                 (err, result) => {
                     if (err) {
@@ -194,7 +209,6 @@ app.get("/Filas/atracao/:id_atracao", (req, res, next) => {
             );
         })
         .catch((error) => {
-            // Se chegou aqui, o axios falhou
             if (error.response && error.response.status === 404) {
                 res.status(404).send("Atração não encontrada.");
             } else {
@@ -207,34 +221,45 @@ app.get("/Filas/atracao/:id_atracao", (req, res, next) => {
         });
 });
 
-/**
- * Método HTTP Get /Filas/entrada/:id para obter uma entrada específica em filas
- */
+// Método HTTP Get /Filas/entrada/:id para obter uma entrada específica em filas
 app.get("/Filas/entrada/:id", (req, res, next) => {
-    db.get(`SELECT * FROM Filas WHERE id = ?`, req.params.id, (err, result) => {
-        if (err) {
-            res.status(500).send("Erro ao obter dados.");
-        } else if (result == null) {
-            res.status(404).send("Entrada em fila não encontrada.");
-        } else {
-            res.status(200).json(result);
+    db.get(
+        `SELECT *
+        FROM Filas
+        WHERE id = ?`,
+        [parseInt(req.params.id, 10)],
+        (err, result) => {
+            if (err) {
+                res.status(500).send("Erro ao obter dados.");
+            } else if (result == null) {
+                res.status(404).send("Entrada em fila não encontrada.");
+            } else {
+                res.status(200).json(result);
+            }
         }
-    });
+    );
 });
 
-/**
- * Método HTTP POST /Filas/sair - simula a catraca de saída
- * Body: { "atracao_id": 1, "cpf_usuario": 12345678900 }
- */
+// Método HTTP POST /Filas/sair - simula a catraca de saída
 app.post("/Filas/sair", (req, res, next) => {
-    const { atracao_id, cpf_usuario } = req.body;
+    const atracao_id = parseInt(req.body.atracao_id, 10);
+    const cpf_usuario = parseInt(req.body.cpf_usuario, 10);
 
-    if (!atracao_id || !cpf_usuario) {
-        return res.status(400).send("CPF e atracao_id são obrigatórios.");
+    if (
+        !atracao_id ||
+        !cpf_usuario ||
+        isNaN(atracao_id) ||
+        isNaN(cpf_usuario)
+    ) {
+        return res
+            .status(400)
+            .send("CPF e atracao_id são obrigatórios e devem ser números.");
     }
 
     db.run(
-        "DELETE FROM Filas WHERE atracao_id = ? AND cpf_usuario = ?",
+        `DELETE FROM Filas
+        WHERE atracao_id = ?
+        AND cpf_usuario = ?`,
         [atracao_id, cpf_usuario],
         function (err) {
             if (err) {
@@ -251,7 +276,6 @@ app.post("/Filas/sair", (req, res, next) => {
 });
 
 // Inicia o Servidor na porta 8083
-// Esta porta DEVE ser diferente do serviço de Cadastro
 let porta = 8083;
 app.listen(porta, () => {
     console.log(`Microserviço de FILAS em execução na porta: ${porta}`);

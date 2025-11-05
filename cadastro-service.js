@@ -24,11 +24,14 @@ var db = new sqlite3.Database("./dados.db", (err) => {
     console.log("Conectado ao SQLite!");
 });
 
-// Cria a tabela cadastro, caso ela não exista
+// Cria a tabela cadastro, caso ela não exista. Email e telefone não são obrigatórios.
 db.run(
-    `CREATE TABLE IF NOT EXISTS cadastro 
-        (nome TEXT NOT NULL, email TEXT NOT NULL, 
-         cpf INTEGER PRIMARY KEY NOT NULL UNIQUE)`,
+    `CREATE TABLE IF NOT EXISTS cadastro (
+        nome TEXT NOT NULL, 
+        email TEXT, 
+        cpf INTEGER PRIMARY KEY NOT NULL UNIQUE,
+        telefone TEXT
+    )`,
     [],
     (err) => {
         if (err) {
@@ -41,8 +44,14 @@ db.run(
 // Método HTTP POST /Cadastro - cadastra um novo cliente
 app.post("/Cadastro", (req, res, next) => {
     db.run(
-        `INSERT INTO cadastro(nome, email, cpf) VALUES(?,?,?)`,
-        [req.body.nome, req.body.email, req.body.cpf],
+        `INSERT INTO cadastro(nome, email, cpf, telefone)
+        VALUES(?,?,?,?)`,
+        [
+            req.body.nome,
+            req.body.email,
+            parseInt(req.body.cpf, 10),
+            req.body.telefone,
+        ],
         (err) => {
             if (err) {
                 console.log("Error: " + err);
@@ -70,8 +79,10 @@ app.get("/Cadastro", (req, res, next) => {
 // Método HTTP GET /Cadastro/:cpf - retorna cadastro do cliente com base no CPF
 app.get("/Cadastro/:cpf", (req, res, next) => {
     db.get(
-        `SELECT * FROM cadastro WHERE cpf = ?`,
-        parseInt(req.params.cpf, 10),
+        `SELECT *
+        FROM cadastro
+        WHERE cpf = ?`,
+        [parseInt(req.params.cpf, 10)],
         (err, result) => {
             if (err) {
                 console.log("Erro: " + err);
@@ -89,8 +100,17 @@ app.get("/Cadastro/:cpf", (req, res, next) => {
 // Método HTTP PATCH /Cadastro/:cpf - altera o cadastro de um cliente
 app.patch("/Cadastro/:cpf", (req, res, next) => {
     db.run(
-        `UPDATE cadastro SET nome = COALESCE(?,nome), email = COALESCE(?,email) WHERE cpf = ?`,
-        [req.body.nome, req.body.email, parseInt(req.params.cpf, 10)],
+        `UPDATE cadastro 
+        SET nome = COALESCE(?,nome),
+        email = COALESCE(?,email),
+        telefone = COALESCE(?,telefone)
+        WHERE cpf = ?`,
+        [
+            req.body.nome,
+            req.body.email,
+            req.body.telefone,
+            parseInt(req.params.cpf, 10),
+        ],
         function (err) {
             if (err) {
                 res.status(500).send("Erro ao alterar dados.");
@@ -107,8 +127,9 @@ app.patch("/Cadastro/:cpf", (req, res, next) => {
 //Método HTTP DELETE /Cadastro/:cpf - remove um cliente do cadastro
 app.delete("/Cadastro/:cpf", (req, res, next) => {
     db.run(
-        `DELETE FROM cadastro WHERE cpf = ?`,
-        parseInt(req.params.cpf, 10),
+        `DELETE FROM cadastro
+        WHERE cpf = ?`,
+        [parseInt(req.params.cpf, 10)],
         function (err) {
             if (err) {
                 res.status(500).send("Erro ao remover cliente.");

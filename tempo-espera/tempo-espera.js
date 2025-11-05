@@ -3,12 +3,11 @@ const express = require("express");
 const app = express();
 const API_GATEWAY_URL = "http://localhost:8000";
 
-// CORREÇÃO: Importar axios e cors
 const axios = require("axios");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 
-app.use(cors()); // Permite acesso do frontend/painéis
+app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 

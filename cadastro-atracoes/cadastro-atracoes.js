@@ -1,7 +1,3 @@
-// ==========================
-// MICRO SERVIÇO: CADASTRO DE ATRAÇÕES
-// ==========================
-
 // Importa dependências
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -10,16 +6,13 @@ const cors = require("cors");
 
 // Inicializa app Express
 const app = express();
-const PORT = 8082; // porta específica para este microserviço
-const API_GATEWAY_URL = "http://localhost:8000";
+const PORT = 8082;
 
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// ==========================
 // BANCO DE DADOS
-// ==========================
 const db = new sqlite3.Database("./Atracoes.db", (err) => {
     if (err) {
         console.error("Erro ao conectar ao banco de dados SQLite:", err);
@@ -37,7 +30,8 @@ db.run(
     descricao TEXT,
     capacidade INTEGER NOT NULL CHECK (capacidade > 0),
     tempo_medio INTEGER NOT NULL CHECK (tempo_medio > 0),
-    status TEXT DEFAULT 'Em funcionamento'
+    status TEXT DEFAULT 'Em funcionamento' NOT NULL 
+        CHECK(status IN ('Em funcionamento', 'Em manutenção', 'Fechado'))
   )
 `,
     (err) => {
@@ -46,26 +40,31 @@ db.run(
     }
 );
 
-// ==========================
 // ROTAS HTTP
-// ==========================
 
 // [GET] /Atracoes - retorna todas as atrações
 app.get("/Atracoes", (req, res) => {
-    db.all("SELECT * FROM Atracoes", [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ erro: "Erro ao consultar atrações." });
-        } else {
-            res.status(200).json(rows);
+    db.all(
+        `SELECT *
+        FROM Atracoes`,
+        [],
+        (err, rows) => {
+            if (err) {
+                res.status(500).json({ erro: "Erro ao consultar atrações." });
+            } else {
+                res.status(200).json(rows);
+            }
         }
-    });
+    );
 });
 
 // [GET] /Atracoes/:id - retorna uma atração específica
 app.get("/Atracoes/:id", (req, res) => {
     db.get(
-        "SELECT * FROM Atracoes WHERE id = ?",
-        [req.params.id],
+        `SELECT *
+        FROM Atracoes
+        WHERE id = ?`,
+        [parseInt(req.params.id, 10)],
         (err, row) => {
             if (err) {
                 res.status(500).json({ erro: "Erro ao consultar atração." });
@@ -89,7 +88,8 @@ app.post("/Atracoes", (req, res) => {
     }
 
     db.run(
-        "INSERT INTO Atracoes (nome, descricao, capacidade, tempo_medio, status) VALUES (?, ?, ?, ?, ?)",
+        `INSERT INTO Atracoes (nome, descricao, capacidade, tempo_medio, status)
+        VALUES (?, ?, ?, ?, ?)`,
         [
             nome,
             descricao || "",
@@ -99,7 +99,11 @@ app.post("/Atracoes", (req, res) => {
         ],
         function (err) {
             if (err) {
-                res.status(500).json({ erro: "Erro ao cadastrar atração." });
+                // NOTA: Se o usuário enviar um status inválido, o CHECK vai falhar
+                res.status(500).json({
+                    erro: "Erro ao cadastrar atração.",
+                    detalhe: err.message,
+                });
             } else {
                 res.status(201).json({
                     mensagem: "Atração cadastrada com sucesso!",
@@ -115,17 +119,28 @@ app.patch("/Atracoes/:id", (req, res) => {
     const { nome, descricao, capacidade, tempo_medio, status } = req.body;
 
     db.run(
+        // COALESCE faz com que seja retornado o primeiro valor não nulo
         `UPDATE Atracoes
-     SET nome = COALESCE(?, nome),
-         descricao = COALESCE(?, descricao),
-         capacidade = COALESCE(?, capacidade),
-         tempo_medio = COALESCE(?, tempo_medio),
-         status = COALESCE(?, status)
-     WHERE id = ?`,
-        [nome, descricao, capacidade, tempo_medio, status, req.params.id],
+         SET nome = COALESCE(?, nome),
+           descricao = COALESCE(?, descricao),
+           capacidade = COALESCE(?, capacidade),
+           tempo_medio = COALESCE(?, tempo_medio),
+           status = COALESCE(?, status)
+           WHERE id = ?`,
+        [
+            nome,
+            descricao,
+            capacidade,
+            tempo_medio,
+            status,
+            parseInt(req.params.id, 10),
+        ],
         function (err) {
             if (err) {
-                res.status(500).json({ erro: "Erro ao atualizar atração." });
+                res.status(500).json({
+                    erro: "Erro ao atualizar atração.",
+                    detalhe: err.message,
+                });
             } else if (this.changes === 0) {
                 res.status(404).json({ erro: "Atração não encontrada." });
             } else {
@@ -140,8 +155,9 @@ app.patch("/Atracoes/:id", (req, res) => {
 // [DELETE] /Atracoes/:id - remove uma atração
 app.delete("/Atracoes/:id", (req, res) => {
     db.run(
-        "DELETE FROM Atracoes WHERE id = ?",
-        [req.params.id],
+        `DELETE FROM Atracoes
+        WHERE id = ?`,
+        [parseInt(req.params.id, 10)],
         function (err) {
             if (err) {
                 res.status(500).json({ erro: "Erro ao remover atração." });
@@ -156,9 +172,7 @@ app.delete("/Atracoes/:id", (req, res) => {
     );
 });
 
-// ==========================
 // INICIA SERVIDOR
-// ==========================
 app.listen(PORT, () => {
     console.log(`Servidor de Cadastro de Atrações rodando na porta ${PORT}`);
 });
